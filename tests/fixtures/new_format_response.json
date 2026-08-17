@@ -1,0 +1,63 @@
+{
+  "data": {
+    "node": {
+      "__typename": "Story",
+      "id": "UzpfSTEwMDA2NDU1NzE2NzE0NToxNDczMzU3NTI4MTU5NDcyOjE0NzMzNTc1MjgxNTk0NzI=",
+      "post_id": "1473357528159472",
+      "creation_time": 1786593850,
+      "feedback": {
+        "associated_group": null,
+        "id": "ZmVlZGJhY2s6MTQ3MzM1NzUyODE1OTQ3Mg==",
+        "owning_profile": {
+          "__typename": "User",
+          "name": "Routine of Nepal banda",
+          "short_name": "Routine of Nepal banda",
+          "id": "100064557167145"
+        }
+      },
+      "comet_sections": {
+        "content": {
+          "story": {
+            "comet_sections": {
+              "message": {
+                "story": {
+                  "message": {
+                    "text": "Good News: बडीमालिकामा जनैपूर्णिमाको मेला अगाडि नै टेलिफोन र इन्टरनेट सेवा सुरु गर्ने लक्ष्यसहित काम अघि बढिरहेको छ।"
+                  }
+                }
+              },
+              "ufi_summary": {
+                "comet_ufi_summary_and_actions_renderer": {
+                  "__typename": "UnauthenticatedUCometUFISummaryAndActionsRenderer",
+                  "feedback": {
+                    "id": "ZmVlZGJhY2s6MTQ3MzM1NzUyODE1OTQ3Mg==",
+                    "subscription_target_id": "1473357528159472",
+                    "reaction_count": { "count": 9519, "is_empty": false },
+                    "top_reactions": {
+                      "count": 7,
+                      "edges": [
+                        {
+                          "visible_in_bling_bar": true,
+                          "node": { "id": "1635855486666999", "localized_name": "Like" },
+                          "reaction_count": 7187
+                        },
+                        {
+                          "visible_in_bling_bar": true,
+                          "node": { "id": "1678524932434102", "localized_name": "Love" },
+                          "reaction_count": 2086
+                        }
+                      ]
+                    },
+                    "share_count": { "count": 37, "is_empty": false },
+                    "comment_rendering_instance": { "comments": { "total_count": 140 } },
+                    "video_view_count": null
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
