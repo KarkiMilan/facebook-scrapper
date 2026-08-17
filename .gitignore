@@ -1,0 +1,6 @@
+node_modules/
+playwright-report/
+test-results/
+*.tsbuildinfo
+*_posts.json
+*_test.json
