@@ -63,6 +63,7 @@ export class FacebookGraphqlScraper {
   private graphqlRequests: Request[] = [];
   private graphqlResponses: Response[] = [];
   private initCursor: string | null = null;
+  private initVariables: Record<string, unknown> | null = null;
 
   // stop-point state (mirrors _set_stop_point)
   private preDiffDays = Number.NEGATIVE_INFINITY;
@@ -333,9 +334,15 @@ export class FacebookGraphqlScraper {
     let noCreationRounds = 0;
 
     for (let i = 0; i < 5000; i++) {
-      const payloadForm = new URLSearchParams(
-        buildPayloadForm({ docId, id: feedId, beforeTime, cursor }),
-      ).toString();
+      // Replay the exact variables Facebook's web app sent (the captured
+      // doc_id may require variables that aren't in the hardcoded list).
+      const variables: Record<string, unknown> = this.initVariables ?? {};
+      variables['cursor'] = cursor;
+      variables['beforeTime'] = beforeTime;
+      const payloadForm = new URLSearchParams({
+        variables: JSON.stringify(variables),
+        doc_id: docId,
+      }).toString();
 
       let response: HttpPostResult;
       try {
@@ -516,6 +523,7 @@ export class FacebookGraphqlScraper {
     this.countsOfSameDiffDays = 0;
     this.lastCheckedResponseCreationCount = 0;
     this.initCursor = null;
+    this.initVariables = null;
 
     if (!this.fbAccount) {
       // Not logged in: dismiss the login popup, then capture the initial
@@ -537,6 +545,7 @@ export class FacebookGraphqlScraper {
         initPayload = this.getInitPayload();
         if (initPayload) {
           this.initCursor = initPayload.cursor;
+          this.initVariables = { ...initPayload.variables };
           console.log('Collect posts without logging in.');
           break;
         }
