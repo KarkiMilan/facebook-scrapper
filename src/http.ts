@@ -1,13 +1,22 @@
 import https from 'node:https';
 import zlib from 'node:zlib';
 
+/** Shared HTTP agent with connection pooling and keep-alive. */
+const sharedAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30_000,
+  maxSockets: 20,
+  maxFreeSockets: 10,
+  timeout: 60_000,
+});
+
 export interface HttpPostResult {
   status: number;
   body: Buffer;
 }
 
 /**
- * Send a form-encoded POST over plain HTTP/1.1.
+ * Send a form-encoded POST over plain HTTP/1.1 with connection pooling.
  *
  * Facebook's GraphQL API rejects HTTP/2 clients (undici `fetch`) with an
  * empty 200 response, and rejects browser User-Agents with HTTP 400.
@@ -28,11 +37,13 @@ export function postForm(
         path: target.pathname + target.search,
         method: 'POST',
         timeout: timeoutMs,
+        agent: sharedAgent,
         headers: {
           'content-type': 'application/x-www-form-urlencoded',
           'content-length': Buffer.byteLength(form),
           'user-agent': userAgent,
           accept: '*/*',
+          'connection': 'keep-alive',
         },
       },
       (res) => {
@@ -47,7 +58,7 @@ export function postForm(
             else if (encoding.includes('deflate')) body = zlib.inflateSync(raw);
             else if (encoding.includes('br')) body = zlib.brotliDecompressSync(raw);
           } catch {
-            body = raw; // fall back to the raw bytes
+            body = raw;
           }
           resolve({ status: res.statusCode ?? 0, body });
         });

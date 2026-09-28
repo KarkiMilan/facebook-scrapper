@@ -155,7 +155,7 @@ export class FacebookGraphqlScraper {
   // ── profile info ─────────────────────────────────────────────────────────
 
   private async getProfileFeed(): Promise<string[]> {
-    await sleep(2000);
+    await sleep(500);
     const page = this.page;
     const selectors = [
       'div[data-pagelet="ProfileTilesFeed_0"]',
@@ -214,8 +214,11 @@ export class FacebookGraphqlScraper {
   /** Returns true when the collected posts already go back further than `days_limit`. */
   private async checkProgress(daysLimit: number, displayProgress: boolean): Promise<boolean> {
     const tmpCreationArray: number[] = [];
-    for (const response of this.graphqlResponses) {
-      const bodyContent = await this.parser.getGraphqlBodyContent(response);
+    // Only process new responses since last check to avoid re-parsing everything.
+    const startIdx = this.lastCheckedResponseCreationCount;
+    let processed = 0;
+    for (let i = startIdx; i < this.graphqlResponses.length; i++) {
+      const bodyContent = await this.parser.getGraphqlBodyContent(this.graphqlResponses[i]);
       if (!bodyContent) continue;
       for (const eachBody of bodyContent) {
         try {
@@ -235,6 +238,9 @@ export class FacebookGraphqlScraper {
           // not a post payload, skip
         }
       }
+      processed++;
+      // Cap processing to avoid slowdowns on high-volume pages.
+      if (processed >= 20) break;
     }
 
     if (tmpCreationArray.length === 0) {
@@ -245,8 +251,8 @@ export class FacebookGraphqlScraper {
     const now = Math.floor(Date.now() / 1000);
     const minAgeDays = Math.max(0, now - Math.min(...tmpCreationArray)) / 86400;
     const maxAgeDays = Math.max(0, now - Math.max(...tmpCreationArray)) / 86400;
-    const deltaCreations = tmpCreationArray.length - this.lastCheckedResponseCreationCount;
-    this.lastCheckedResponseCreationCount = tmpCreationArray.length;
+    const deltaCreations = tmpCreationArray.length;
+    this.lastCheckedResponseCreationCount += deltaCreations;
     if (this.debug) {
       console.log(
         `[debug] check: responses=${this.graphqlResponses.length} unique_posts=${this.debugPostIds.size} ` +
@@ -332,6 +338,9 @@ export class FacebookGraphqlScraper {
     let cursor = this.initCursor;
     let beforeTime = getBeforeTime();
     let noCreationRounds = 0;
+    let consecutiveErrors = 0;
+    const startTime = Date.now();
+    const maxRetries = 5;
 
     for (let i = 0; i < 5000; i++) {
       // Replay the exact variables Facebook's web app sent (the captured
@@ -344,13 +353,36 @@ export class FacebookGraphqlScraper {
         doc_id: docId,
       }).toString();
 
-      let response: HttpPostResult;
-      try {
-        response = await postForm(GRAPHQL_URL, payloadForm);
-      } catch (error) {
-        console.error(`GraphQL request failed: ${(error as Error).message}`);
-        return null;
+      let response: HttpPostResult | null = null;
+      let retries = 0;
+      while (retries < maxRetries) {
+        try {
+          response = await postForm(GRAPHQL_URL, payloadForm);
+          break;
+        } catch (error) {
+          retries++;
+          consecutiveErrors++;
+          const msg = (error as Error).message;
+          if (msg.includes('ECONNRESET') || msg.includes('ECONNREFUSED') || msg.includes('ETIMEDOUT') || msg.includes('ENOTFOUND')) {
+            const backoff = Math.min(1000 * Math.pow(2, retries - 1), 30000);
+            console.warn(`GraphQL request failed (${msg}); retrying ${retries}/${maxRetries} in ${backoff}ms...`);
+            await sleep(backoff);
+            continue;
+          }
+          console.error(`GraphQL request failed: ${msg}`);
+          if (consecutiveErrors >= 5) return null;
+          break;
+        }
       }
+
+      if (!response) {
+        if (consecutiveErrors >= 5) {
+          console.log('Too many consecutive errors; stopping API flow.');
+          return null;
+        }
+        continue;
+      }
+
       if (response.status !== 200) {
         console.warn(`GraphQL API returned HTTP ${response.status}; stopping API flow.`);
         return null;
@@ -371,10 +403,15 @@ export class FacebookGraphqlScraper {
       const preCreationLen = this.parser.creationList.length;
       this.parser.parseBody(bodyContent);
       const newCreationList = this.parser.creationList.slice(preCreationLen);
-      const latestCreationTime = newCreationList.length > 0
+      const oldestCreationTime = newCreationList.length > 0
         ? newCreationList[newCreationList.length - 1]
         : this.parser.creationList.length > 0
           ? this.parser.creationList[this.parser.creationList.length - 1]
+          : null;
+      const newestCreationTime = newCreationList.length > 0
+        ? newCreationList[0]
+        : this.parser.creationList.length > 0
+          ? this.parser.creationList[0]
           : null;
 
       const pageInfo = this.parser.pageInfo;
@@ -382,9 +419,10 @@ export class FacebookGraphqlScraper {
       const hasNextPage = pageInfo ? pageInfo.hasNextPage : true;
       cursor = (pageInfo?.endCursor ?? null) ?? cursor;
 
-      if (latestCreationTime !== null) {
-        beforeTime = String(latestCreationTime);
+      if (oldestCreationTime !== null) {
+        beforeTime = String(oldestCreationTime);
         noCreationRounds = 0;
+        consecutiveErrors = 0;
       } else {
         noCreationRounds += 1;
         if (displayProgress) console.log('No creation_time parsed from current graphql response; retrying next page.');
@@ -398,12 +436,17 @@ export class FacebookGraphqlScraper {
         console.log('Unable to parse post timestamps for multiple rounds, stop scraping early.');
         break;
       }
-      if (latestCreationTime !== null && compareTimestamp(latestCreationTime, daysLimit, displayProgress)) {
+      if (newestCreationTime !== null && compareTimestamp(newestCreationTime, daysLimit, displayProgress)) {
         console.log(`The scraper has successfully retrieved posts from the past ${daysLimit} days.`);
         break;
       }
 
-      await sleep(300);
+      if (i % 5 === 0 && displayProgress) {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        console.log(`API flow: ${this.parser.creationList.length} posts collected in ${elapsed}s`);
+      }
+
+      await sleep(200);
     }
 
     const resOut = this.parser.collectPosts();
@@ -474,7 +517,7 @@ export class FacebookGraphqlScraper {
         countsOfRound = 0;
       }
       countsOfRound += 1;
-      await sleep(700);
+      await sleep(100);
     }
 
     // Collect data from the intercepted GraphQL responses.
@@ -510,7 +553,7 @@ export class FacebookGraphqlScraper {
     // before we visit the profile (helps anonymous depth).
     if (this.warmUp) {
       await this.browserManager!.goto('https://www.facebook.com/', 45_000);
-      await sleep(1500);
+      await sleep(500);
     }
 
     const url = `https://www.facebook.com/${fbUsernameOrUserid}?locale=${this.locale}`;
@@ -528,12 +571,12 @@ export class FacebookGraphqlScraper {
     if (!this.fbAccount) {
       // Not logged in: dismiss the login popup, then capture the initial
       // GraphQL payload (doc_id / id / cursor) from Facebook's own requests.
-      await sleep(5000);
+      await sleep(2000);
       for (let i = 0; i < 2; i++) {
         await this.browserManager!.clickRejectLoginButton();
-        await sleep(2000);
+        await sleep(500);
       }
-      await sleep(3000);
+      await sleep(1500);
 
       // Trigger the initial feed request so posts start loading.
       for (let i = 0; i < 3; i++) {
@@ -549,9 +592,9 @@ export class FacebookGraphqlScraper {
           console.log('Collect posts without logging in.');
           break;
         }
-        if (displayProgress) console.log('Wait 1 second to load page');
+        if (displayProgress) console.log('Wait 0.2s to load page');
         await this.browserManager!.scrollWindowBy(1000);
-        await sleep(1000);
+        await sleep(200);
       }
 
       if (!initPayload) {

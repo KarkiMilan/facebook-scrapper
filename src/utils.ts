@@ -179,5 +179,5 @@ export function compareTimestamp(timestamp: number, daysLimit: number, displayPr
       console.log('Target days reached or exceeded.');
     }
   }
-  return timestampDate.getTime() < pastDate.getTime();
+  return timestampDate.getTime() <= pastDate.getTime();
 }
